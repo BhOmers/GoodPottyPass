@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Bathroom Pass — Period {{ period }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Bathroom Pass — Period {{ period }}</h1>
+  <div class="tab-group">
+    {% for p in all_periods %}
+      <a href="{{ url_for('bathroom', period=p) }}"
+         class="tab {% if p|int == period %}tab-active{% endif %}">P{{ p }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="two-col">
+
+  <!-- Live Status -->
+  <div class="card">
+    <h2>Current Status</h2>
+    {% if bathroom_out %}
+      <div class="bathroom-out-big">
+        <div class="out-name">{{ bathroom_out.name }}</div>
+        <div class="out-time">
+          Out for <strong>{{ bathroom_out.minutes_out }} min</strong>
+          <span class="muted">(left {{ bathroom_out.out_time[11:16] }})</span>
+        </div>
+      </div>
+      <form method="POST" action="{{ url_for('force_return') }}" style="margin-top:12px">
+        <input type="hidden" name="student_id" value="{{ bathroom_out.student_id }}">
+        <input type="hidden" name="period" value="{{ period }}">
+        <button type="submit" class="btn btn-secondary">⏎ Force Return</button>
+      </form>
+    {% else %}
+      <div class="empty-state big-empty">🟢<br>Pass is available</div>
+    {% endif %}
+
+    <h3 style="margin-top:20px">Queue</h3>
+    {% if queue %}
+      <ol class="queue-list-big">
+        {% for q in queue %}
+        <li>
+          <span>{{ loop.index }}. {{ q.name }}</span>
+          <span class="muted small">queued {{ q.queued_at[11:16] }}</span>
+          <form method="POST" action="{{ url_for('remove_queue') }}" style="display:inline">
+            <input type="hidden" name="student_id" value="{{ q.student_id }}">
+            <input type="hidden" name="period" value="{{ period }}">
+            <button type="submit" class="btn btn-xs btn-danger">Remove</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <div class="muted" style="margin-top:8px">Queue is empty.</div>
+    {% endif %}
+  </div>
+
+  <!-- Total Minutes Per Student -->
+  <div class="card">
+    <h2>Total Bathroom Time (All Time)</h2>
+    {% if students_with_totals %}
+    <table class="table">
+      <thead>
+        <tr><th>#</th><th>Name</th><th>Total Min</th></tr>
+      </thead>
+      <tbody>
+        {% for s in students_with_totals %}
+        <tr>
+          <td class="muted">{{ s.card_number }}</td>
+          <td>{{ s.name }}</td>
+          <td>
+            {% if s.total_minutes > 0 %}
+              <strong>{{ s.total_minutes }}</strong>
+            {% else %}
+              <span class="muted">0</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="empty-state">No students in this period.</div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Today's Log -->
+<div class="card" style="margin-top:20px">
+  <h2>Today's Log</h2>
+  {% if log %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Card #</th>
+        <th>Left</th>
+        <th>Returned</th>
+        <th>Duration</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in log %}
+      <tr>
+        <td><strong>{{ entry.name }}</strong></td>
+        <td class="muted">{{ entry.card_number }}</td>
+        <td>{{ entry.out_time[11:16] }}</td>
+        <td>{{ entry.in_time[11:16] if entry.in_time else '<span class="badge badge-warning">Still out</span>' | safe }}</td>
+        <td>
+          {% if entry.duration_minutes %}
+            {{ "%.1f"|format(entry.duration_minutes) }} min
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty-state">No bathroom trips recorded today for this period.</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Auto-refresh page every 15 seconds so out-time stays current
+setTimeout(() => location.reload(), 15000);
+</script>
+{% endblock %}

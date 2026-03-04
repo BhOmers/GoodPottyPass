@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Attendance - Period {{ period }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Attendance — Period {{ period }}</h1>
+  <div class="tab-group">
+    {% for p in all_periods %}
+      <a href="{{ url_for('attendance', period=p) }}"
+         class="tab {% if p|int == period %}tab-active{% endif %}">P{{ p }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-toolbar">
+    <span class="muted">{{ today }} &nbsp;|&nbsp; {{ attendance|length }} students</span>
+    <div>
+      <span class="badge badge-present">Present: {{ attendance|selectattr('status','eq','present')|list|length }}</span>
+      <span class="badge badge-tardy">Tardy: {{ attendance|selectattr('status','eq','tardy')|list|length }}</span>
+      <span class="badge badge-absent">Absent: {{ attendance|selectattr('status','eq','absent')|list|length }}</span>
+    </div>
+  </div>
+
+  {% if attendance %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Card #</th>
+        <th>Name</th>
+        <th>Status</th>
+        <th>Scan Time</th>
+        <th>Override</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in attendance %}
+      <tr class="row-{{ s.status }}">
+        <td class="muted">{{ s.card_number }}</td>
+        <td><strong>{{ s.name }}</strong></td>
+        <td><span class="badge badge-{{ s.status }}">{{ s.status }}</span></td>
+        <td class="muted">{{ s.scan_time or '—' }}</td>
+        <td>
+          <form method="POST" action="{{ url_for('update_attendance') }}" class="inline-form">
+            <input type="hidden" name="student_id" value="{{ s.id }}">
+            <input type="hidden" name="period" value="{{ period }}">
+            <select name="status" class="select-inline select-sm">
+              <option value="present" {% if s.status == 'present' %}selected{% endif %}>Present</option>
+              <option value="tardy"   {% if s.status == 'tardy'   %}selected{% endif %}>Tardy</option>
+              <option value="absent"  {% if s.status == 'absent'  %}selected{% endif %}>Absent</option>
+            </select>
+            <button type="submit" class="btn btn-xs btn-secondary">Save</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty-state">
+      No students in this period. <a href="{{ url_for('upload_roster') }}">Upload a roster →</a>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
