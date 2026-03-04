@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Attendance System - Student Roster
+  
+  Rules:
+  - period number: 0 through 7
+  - card_number: 1 through 50 (matches the physical RFID card)
+  - The same card_number can appear in multiple periods
+    (card #1 in Period 1 is a different seat than card #1 in Period 3)
+  - Student names are plain text: First Last
+-->
+<roster>
+
+  <period number="1">
+    <student card_number="1">Jane Smith</student>
+    <student card_number="2">John Doe</student>
+    <student card_number="3">Alice Johnson</student>
+    <student card_number="4">Bob Williams</student>
+    <student card_number="5">Maria Garcia</student>
+    <student card_number="6">James Brown</student>
+    <student card_number="7">Linda Davis</student>
+  </period>
+
+  <period number="2">
+    <student card_number="1">Carlos Martinez</student>
+    <student card_number="2">Emily Wilson</student>
+    <student card_number="3">Michael Taylor</student>
+    <student card_number="4">Sarah Anderson</student>
+    <student card_number="5">David Thomas</student>
+  </period>
+
+  <period number="3">
+    <student card_number="1">Jessica Jackson</student>
+    <student card_number="2">Chris White</student>
+    <student card_number="3">Amanda Harris</student>
+    <student card_number="4">Daniel Martin</student>
+  </period>
+
+</roster>
