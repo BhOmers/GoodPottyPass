@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Analytics{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Analytics</h1>
+  <a href="{{ url_for('analytics_export', semester=sem_key, start=start_d, end=end_d, period=period or '') }}"
+     class="btn btn-secondary btn-sm">Export CSV</a>
+</div>
+
+<div class="card">
+  <form method="GET" action="{{ url_for('analytics') }}" class="filter-bar">
+    <div class="form-group">
+      <label>Semester</label>
+      <select name="semester" class="select-inline" onchange="this.form.submit()">
+        <option value="">Custom range</option>
+        {% for key, sem in semesters.items() %}
+          <option value="{{ key }}" {% if key == sem_key %}selected{% endif %}>{{ sem.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>From</label>
+      <input type="date" name="start" value="{{ start_d }}" class="input-inline">
+    </div>
+    <div class="form-group">
+      <label>To</label>
+      <input type="date" name="end" value="{{ end_d }}" class="input-inline">
+    </div>
+    <div class="form-group">
+      <label>Period</label>
+      <select name="period" class="select-inline">
+        <option value="">All periods</option>
+        {% for p in active_periods %}
+          <option value="{{ p }}" {% if period == p %}selected{% endif %}>Period {{ p }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group" style="align-self:flex-end">
+      <button type="submit" class="btn btn-primary">Apply</button>
+    </div>
+  </form>
+</div>
+
+{% if daily_trend %}
+<div class="card">
+  <h2>Bathroom Trips Per Day</h2>
+  <canvas id="dailyChart" height="75" style="margin-top:10px"></canvas>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Per-Student Summary</h2>
+  <p class="muted small" style="margin-bottom:12px">{{ start_d }} to {{ end_d }} &nbsp;&middot;&nbsp; sorted by total time</p>
+  {% if analytics_data %}
+  <div class="table-wrap">
+    <table class="table analytics-table">
+      <thead>
+        <tr>
+          <th>Card</th>
+          <th>Name</th>
+          <th>Period</th>
+          <th>Total</th>
+          <th>Trips</th>
+          <th>Avg / Trip</th>
+          <th style="width:100px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in analytics_data %}
+        <tr>
+          <td class="muted mono">{{ s.card_number }}</td>
+          <td>{{ s.name }}</td>
+          <td class="muted">{{ s.period }}</td>
+          <td>
+            <span class="{% if s.total_minutes > 30 %}high{% elif s.total_minutes > 15 %}med{% endif %}">
+              {{ s.total_minutes }} min
+            </span>
+          </td>
+          <td class="muted">{{ s.trips }}</td>
+          <td class="muted">{{ s.avg_minutes }} min</td>
+          <td class="bar-cell">
+            <div class="usage-bar-bg">
+              <div class="usage-bar-fill" style="width:{{ [s.total_minutes / 60 * 100, 100]|min }}%"></div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="empty-state">No bathroom data for this date range.</div>
+  {% endif %}
+</div>
+
+{% if student_trends %}
+<div class="card">
+  <h2>Weekly Trend — Top 5 Students</h2>
+  <canvas id="weeklyChart" height="80" style="margin-top:10px"></canvas>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+Chart.defaults.font.size   = 12;
+Chart.defaults.color       = '#6b7280';
+
+{% if daily_trend %}
+const dailyData = {{ daily_trend | tojson }};
+new Chart(document.getElementById('dailyChart'), {
+  type: 'bar',
+  data: {
+    labels: dailyData.map(d => d.date),
+    datasets: [
+      {
+        label: 'Trips',
+        data: dailyData.map(d => d.trips),
+        backgroundColor: 'rgba(37,99,235,0.15)',
+        borderColor: 'rgba(37,99,235,0.7)',
+        borderWidth: 1,
+        borderRadius: 3,
+      },
+      {
+        label: 'Total minutes',
+        data: dailyData.map(d => +(d.total_minutes).toFixed(1)),
+        type: 'line',
+        borderColor: 'rgba(220,38,38,0.6)',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        tension: 0.35,
+        pointRadius: 3,
+        pointBackgroundColor: 'rgba(220,38,38,0.6)',
+        yAxisID: 'y2',
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    scales: {
+      y:  { beginAtZero: true, grid: { color: '#f0f0f0' }, title: { display: true, text: 'Trips' } },
+      y2: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Minutes' } }
+    },
+    plugins: { legend: { position: 'top', align: 'end' } }
+  }
+});
+{% endif %}
+
+{% if student_trends %}
+const trends     = {{ student_trends | tojson }};
+const allWeeks   = [...new Set(Object.values(trends).flatMap(s => s.weeks.map(w => w.week_start)))].sort();
+const palette    = ['#2563eb','#dc2626','#16a34a','#d97706','#7c3aed'];
+
+new Chart(document.getElementById('weeklyChart'), {
+  type: 'line',
+  data: {
+    labels: allWeeks,
+    datasets: Object.entries(trends).map(([sid, st], i) => {
+      const map = Object.fromEntries(st.weeks.map(w => [w.week_start, w.total_minutes]));
+      return {
+        label:           st.name,
+        data:            allWeeks.map(w => +(map[w] || 0).toFixed(1)),
+        borderColor:     palette[i % palette.length],
+        backgroundColor: 'transparent',
+        borderWidth:     2,
+        tension:         0.3,
+        pointRadius:     3,
+      };
+    })
+  },
+  options: {
+    responsive: true,
+    scales: {
+      y: { beginAtZero: true, grid: { color: '#f0f0f0' }, title: { display: true, text: 'Minutes out' } }
+    },
+    plugins: { legend: { position: 'top', align: 'end' } }
+  }
+});
+{% endif %}
+</script>
+{% endblock %}

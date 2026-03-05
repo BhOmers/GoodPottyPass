@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Settings</h1>
+</div>
+
+<div class="card">
+  <h2>Period Control</h2>
+  <p class="muted" style="margin-bottom:12px">
+    Active period:
+    <strong>{% if current_period is not none %}Period {{ current_period }}{% else %}None{% endif %}</strong>
+    {% if manual_override %}&nbsp;<span class="badge badge-warning">Override on</span>{% endif %}
+  </p>
+  <form method="POST" action="{{ url_for('settings') }}" class="inline-form">
+    <input type="hidden" name="action" value="manual_period">
+    <select name="manual_period_val" class="select-inline">
+      <option value="auto" {% if not manual_override %}selected{% endif %}>Auto (by clock)</option>
+      {% for p in active_periods %}
+        <option value="{{ p }}" {% if manual_override and current_period == p %}selected{% endif %}>Period {{ p }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-secondary">Apply</button>
+  </form>
+  <p class="form-hint" style="margin-top:8px">Period times are managed on the <a href="{{ url_for('schedules') }}">Schedules</a> page.</p>
+</div>
+
+<form method="POST" action="{{ url_for('settings') }}">
+  <input type="hidden" name="action" value="save_general">
+  <div class="card">
+    <h2>General</h2>
+
+    <div class="two-col-equal" style="margin-bottom:20px">
+      <div>
+        <div class="section-title">Attendance timing</div>
+        <div class="form-group">
+          <label>Pre-scan window (minutes before the bell)</label>
+          <input type="number" name="pre_scan_minutes"
+                 value="{{ config.pre_scan_minutes }}" min="0" max="30"
+                 class="input-inline" style="width:70px">
+          <p class="form-hint">Students scanning within this window before the start time are marked Present. At or after the bell is Tardy.</p>
+        </div>
+      </div>
+      <div>
+        <div class="section-title">OLED display</div>
+        <div class="form-group">
+          <label>Message hold time (seconds)</label>
+          <input type="number" name="oled_message_duration"
+                 value="{{ config.oled_message_duration }}" min="2" max="30"
+                 class="input-inline" style="width:70px">
+          <p class="form-hint">How long each scan result stays on the OLED before returning to the idle screen.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">System toggles</div>
+    <div class="toggle-row">
+      <label class="toggle-card">
+        <input type="checkbox" name="attendance_enabled"
+               {% if config.attendance_enabled %}checked{% endif %}>
+        <div class="toggle-card-text">
+          <strong>Attendance tracking</strong>
+          <span>Cards are scanned but no attendance is recorded when off.</span>
+        </div>
+      </label>
+      <label class="toggle-card">
+        <input type="checkbox" name="bathroom_enabled"
+               {% if config.bathroom_enabled %}checked{% endif %}>
+        <div class="toggle-card-text">
+          <strong>Bathroom pass</strong>
+          <span>Students can still sign in for attendance, but the bathroom pass won't work.</span>
+        </div>
+      </label>
+    </div>
+
+    <div style="margin-top:20px">
+      <button type="submit" class="btn btn-primary">Save settings</button>
+    </div>
+  </div>
+</form>
+
+<form method="POST" action="{{ url_for('settings') }}">
+  <input type="hidden" name="action" value="save_semesters">
+  <div class="card">
+    <h2>Semesters</h2>
+    <p class="muted" style="margin-bottom:14px">Used to scope bathroom analytics. The current semester is the default view on the Analytics page.</p>
+
+    <table class="table" id="sem-table">
+      <thead>
+        <tr><th>Key</th><th>Name</th><th>Start</th><th>End</th><th>Current</th></tr>
+      </thead>
+      <tbody>
+        {% for key, sem in config.semesters.items() %}
+        <tr>
+          <td><input type="text" name="sem_key"   value="{{ key }}"       class="input-inline" style="width:120px"></td>
+          <td><input type="text" name="sem_name"  value="{{ sem.name }}"  class="input-inline" style="width:150px"></td>
+          <td><input type="date" name="sem_start" value="{{ sem.start }}" class="input-inline"></td>
+          <td><input type="date" name="sem_end"   value="{{ sem.end }}"   class="input-inline"></td>
+          <td style="text-align:center">
+            <input type="radio" name="current_semester" value="{{ key }}"
+                   {% if config.current_semester == key %}checked{% endif %}
+                   style="accent-color:#2563eb">
+          </td>
+        </tr>
+        {% endfor %}
+        <tr id="new-sem-row" style="display:none">
+          <td><input type="text" name="sem_key"   placeholder="fall_2026"  class="input-inline" style="width:120px"></td>
+          <td><input type="text" name="sem_name"  placeholder="Fall 2026"  class="input-inline" style="width:150px"></td>
+          <td><input type="date" name="sem_start" class="input-inline"></td>
+          <td><input type="date" name="sem_end"   class="input-inline"></td>
+          <td><input type="radio" name="current_semester" value=""></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button type="button" class="btn btn-secondary btn-sm"
+              onclick="document.getElementById('new-sem-row').style.display='table-row'">
+        Add semester
+      </button>
+      <button type="submit" class="btn btn-primary btn-sm">Save semesters</button>
+    </div>
+  </div>
+</form>
+{% endblock %}

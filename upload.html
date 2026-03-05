@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Roster{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Student Roster</h1>
+</div>
+
+<div class="two-col">
+
+  <div class="card">
+    <h2>Upload XML File</h2>
+    <form method="POST" action="{{ url_for('upload_roster') }}" enctype="multipart/form-data">
+      <div class="form-group">
+        <label>Roster file (.xml)</label>
+        <input type="file" name="roster_file" accept=".xml" required class="input-block">
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:400;cursor:pointer">
+          <input type="checkbox" name="replace" value="yes">
+          Replace existing students for each period in this file
+        </label>
+        <p class="form-hint">If unchecked, students are merged in without removing existing ones.</p>
+      </div>
+      <button type="submit" class="btn btn-primary">Upload</button>
+    </form>
+
+    <hr class="divider">
+
+    <div class="section-title">XML Format</div>
+    <pre class="code-block">{% raw %}<?xml version="1.0" encoding="UTF-8"?>
+<roster>
+  <period number="1">
+    <student card_number="1">Jane Smith</student>
+    <student card_number="2">John Doe</student>
+  </period>
+  <period number="2">
+    <student card_number="1">Carlos Martinez</student>
+    <student card_number="4">Maria Garcia</student>
+  </period>
+</roster>{% endraw %}</pre>
+    <p class="form-hint" style="margin-top:8px">card_number must be 1–50. The same number can appear in multiple periods.</p>
+  </div>
+
+  <div class="card">
+    <h2>Current Roster</h2>
+    {% if by_period %}
+      {% for period, students in by_period.items()|sort %}
+      <div class="roster-period">
+        <h3>Period {{ period }} <span class="muted small">({{ students|length }})</span></h3>
+        <table class="table table-compact">
+          <thead><tr><th>#</th><th>Name</th></tr></thead>
+          <tbody>
+            {% for s in students %}
+            <tr>
+              <td class="muted mono">{{ s.card_number }}</td>
+              <td>{{ s.name }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty-state">No students loaded yet.</div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Bathroom Pass — Period {{ period }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <h1>Bathroom Pass</h1>
+    <span class="page-title-meta">{{ now }}</span>
+  </div>
+  <div class="tab-group">
+    {% for p in active_periods %}
+      <a href="{{ url_for('bathroom', period=p) }}"
+         class="tab {% if p == period %}tab-active{% endif %}">Period {{ p }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="two-col">
+
+  <div>
+    <div class="card">
+      <h2>Current Status</h2>
+      {% if bathroom_out %}
+        <div class="bathroom-out-big">
+          <div class="out-name">{{ bathroom_out.name }}</div>
+          <div class="out-time" style="margin-top:4px">
+            {{ bathroom_out.minutes_out }} min out &nbsp;&middot;&nbsp; left at {{ bathroom_out.out_time[11:16] }}
+          </div>
+        </div>
+        <form method="POST" action="{{ url_for('force_return') }}" style="margin-top:10px">
+          <input type="hidden" name="student_id" value="{{ bathroom_out.student_id }}">
+          <input type="hidden" name="period" value="{{ period }}">
+          <button type="submit" class="btn btn-secondary btn-sm">Force Return</button>
+        </form>
+      {% else %}
+        <div class="pass-available">Pass is available</div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Queue</h2>
+      {% if queue %}
+        <ol class="queue-list-big">
+          {% for q in queue %}
+          <li>
+            <span class="queue-pos">{{ loop.index }}</span>
+            <span>{{ q.name }}</span>
+            <span class="queue-time">{{ q.queued_at[11:16] }}</span>
+            <form method="POST" action="{{ url_for('remove_queue') }}">
+              <input type="hidden" name="student_id" value="{{ q.student_id }}">
+              <input type="hidden" name="period" value="{{ period }}">
+              <button type="submit" class="btn btn-xs btn-ghost">Remove</button>
+            </form>
+          </li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <div class="empty-state" style="padding:14px">Nobody waiting.</div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Time This {{ sem_name }}</h2>
+      {% if students_with_totals %}
+      <table class="table">
+        <thead>
+          <tr><th>Name</th><th>Total</th><th>Trips</th><th>Avg</th></tr>
+        </thead>
+        <tbody>
+          {% for s in students_with_totals %}
+          <tr>
+            <td>{{ s.name }}</td>
+            <td>
+              <span class="{% if s.total_minutes > 30 %}text-red{% elif s.total_minutes > 15 %}text-amber{% endif %}">
+                {{ s.total_minutes }} min
+              </span>
+            </td>
+            <td class="muted">{{ s.trips }}</td>
+            <td class="muted">{{ s.avg_minutes }} min</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+        <div class="empty-state" style="padding:14px">No data yet.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Today's Log</h2>
+    {% if log %}
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Card</th>
+            <th>Left</th>
+            <th>Returned</th>
+            <th>Duration</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in log %}
+          <tr>
+            <td>{{ entry.name }}</td>
+            <td class="muted mono">{{ entry.card_number }}</td>
+            <td>{{ entry.out_time[11:16] }}</td>
+            <td>
+              {% if entry.in_time %}
+                {{ entry.in_time[11:16] }}
+              {% else %}
+                <span class="badge badge-warning">Still out</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if entry.duration_minutes %}
+                {{ "%.1f"|format(entry.duration_minutes) }} min
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <div class="empty-state">No trips recorded today for this period.</div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+setTimeout(() => location.reload(), 15000);
+</script>
+{% endblock %}

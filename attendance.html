@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Attendance — Period {{ period }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <h1>Attendance</h1>
+    <span class="page-title-meta">{{ today }}</span>
+  </div>
+  <div class="tab-group">
+    {% for p in active_periods %}
+      <a href="{{ url_for('attendance', period=p) }}"
+         class="tab {% if p == period %}tab-active{% endif %}">Period {{ p }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-toolbar">
+    <div class="card-toolbar-right">
+      <span class="muted small">{{ attendance|length }} students</span>
+      <span class="badge badge-present">{{ attendance|selectattr('status','eq','present')|list|length }} present</span>
+      <span class="badge badge-tardy">{{ attendance|selectattr('status','eq','tardy')|list|length }} tardy</span>
+      <span class="badge badge-absent">{{ attendance|selectattr('status','eq','absent')|list|length }} absent</span>
+    </div>
+  </div>
+
+  {% if attendance %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Card</th>
+          <th>Name</th>
+          <th>Status</th>
+          <th>Scan Time</th>
+          <th>Override</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in attendance %}
+        <tr class="row-{{ s.status }}">
+          <td class="muted mono">{{ s.card_number }}</td>
+          <td>{{ s.name }}</td>
+          <td><span class="badge badge-{{ s.status }}">{{ s.status }}</span></td>
+          <td class="muted">{{ s.scan_time or '—' }}</td>
+          <td>
+            <form method="POST" action="{{ url_for('update_attendance') }}" class="inline-form">
+              <input type="hidden" name="student_id" value="{{ s.id }}">
+              <input type="hidden" name="period" value="{{ period }}">
+              <select name="status" class="select-inline" style="font-size:0.78rem;padding:3px 6px">
+                <option value="present" {% if s.status == 'present' %}selected{% endif %}>Present</option>
+                <option value="tardy"   {% if s.status == 'tardy'   %}selected{% endif %}>Tardy</option>
+                <option value="absent"  {% if s.status == 'absent'  %}selected{% endif %}>Absent</option>
+              </select>
+              <button type="submit" class="btn btn-xs btn-secondary">Save</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="empty-state">
+      No students in this period.
+      <br><a href="{{ url_for('upload_roster') }}">Upload a roster</a>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
