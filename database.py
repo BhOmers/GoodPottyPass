@@ -61,7 +61,7 @@ def init_db():
         """)
 
 
-# ── Card Registry ────────────────────────────────────────────────────────────
+# ── Card Registry ─────────────────────────────────────────────────────────────
 
 def register_card(uid, card_number):
     with get_conn() as conn:
@@ -94,7 +94,7 @@ def delete_card_registration(card_number):
         )
 
 
-# ── Students ─────────────────────────────────────────────────────────────────
+# ── Students ──────────────────────────────────────────────────────────────────
 
 def get_student(card_number, period):
     with get_conn() as conn:
@@ -140,7 +140,6 @@ def clear_roster(period):
 # ── Attendance ────────────────────────────────────────────────────────────────
 
 def get_attendance(date, period):
-    """Returns all students for a period with their attendance status."""
     with get_conn() as conn:
         rows = conn.execute(
             """
@@ -268,19 +267,6 @@ def remove_from_bathroom_queue(student_id, date, period):
         )
 
 
-def get_bathroom_total_minutes(student_id):
-    with get_conn() as conn:
-        row = conn.execute(
-            """
-            SELECT COALESCE(SUM(duration_minutes), 0) AS total
-            FROM bathroom_sessions
-            WHERE student_id=? AND duration_minutes IS NOT NULL
-            """,
-            (student_id,),
-        ).fetchone()
-        return round(row["total"], 1) if row else 0.0
-
-
 def get_bathroom_log(date=None, period=None):
     with get_conn() as conn:
         query = """
@@ -302,6 +288,127 @@ def get_bathroom_log(date=None, period=None):
 
 
 def force_return_bathroom(student_id, date, period, in_time, duration_minutes):
-    """Teacher override to mark a student as returned."""
     end_bathroom_session(student_id, date, period, in_time, duration_minutes)
     remove_from_bathroom_queue(student_id, date, period)
+
+
+# ── Analytics ─────────────────────────────────────────────────────────────────
+
+def get_bathroom_total_minutes(student_id, start_date=None, end_date=None):
+    """Total completed bathroom minutes for a student, optionally filtered by date range."""
+    with get_conn() as conn:
+        query = """
+            SELECT COALESCE(SUM(duration_minutes), 0) AS total,
+                   COUNT(*) AS trips
+            FROM bathroom_sessions
+            WHERE student_id=? AND duration_minutes IS NOT NULL
+        """
+        params = [student_id]
+        if start_date:
+            query += " AND date >= ?"
+            params.append(start_date)
+        if end_date:
+            query += " AND date <= ?"
+            params.append(end_date)
+        row = conn.execute(query, params).fetchone()
+        total = round(row["total"], 1) if row else 0.0
+        trips = row["trips"] if row else 0
+        avg   = round(total / trips, 1) if trips > 0 else 0.0
+        return {"total_minutes": total, "trips": trips, "avg_minutes": avg}
+
+
+def get_all_bathroom_analytics(period=None, start_date=None, end_date=None):
+    """
+    Returns per-student analytics for the given filters.
+    Each row: student_id, card_number, name, period, total_minutes, trips, avg_minutes
+    """
+    with get_conn() as conn:
+        query = """
+            SELECT s.id AS student_id, s.card_number, s.name, s.period,
+                   COALESCE(SUM(bs.duration_minutes), 0) AS total_minutes,
+                   COUNT(bs.id) AS trips
+            FROM students s
+            LEFT JOIN bathroom_sessions bs
+                ON s.id = bs.student_id
+                AND bs.duration_minutes IS NOT NULL
+        """
+        params = []
+        wheres = []
+
+        if start_date:
+            wheres.append("(bs.date IS NULL OR bs.date >= ?)")
+            params.append(start_date)
+        if end_date:
+            wheres.append("(bs.date IS NULL OR bs.date <= ?)")
+            params.append(end_date)
+        if period is not None:
+            wheres.append("s.period = ?")
+            params.append(period)
+
+        if wheres:
+            query += " WHERE " + " AND ".join(wheres)
+
+        query += " GROUP BY s.id ORDER BY total_minutes DESC"
+        rows = conn.execute(query, params).fetchall()
+        results = []
+        for r in rows:
+            d = dict(r)
+            d["total_minutes"] = round(d["total_minutes"], 1)
+            d["avg_minutes"] = round(d["total_minutes"] / d["trips"], 1) if d["trips"] > 0 else 0.0
+            results.append(d)
+        return results
+
+
+def get_bathroom_weekly_trend(student_id, start_date, end_date):
+    """
+    Returns weekly aggregated bathroom minutes for trend charts.
+    Each row: week_start (YYYY-MM-DD Monday), total_minutes, trips
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                date(date, 'weekday 0', '-6 days') AS week_start,
+                COALESCE(SUM(duration_minutes), 0) AS total_minutes,
+                COUNT(*) AS trips
+            FROM bathroom_sessions
+            WHERE student_id=?
+              AND duration_minutes IS NOT NULL
+              AND date >= ? AND date <= ?
+            GROUP BY week_start
+            ORDER BY week_start ASC
+            """,
+            (student_id, start_date, end_date),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_bathroom_daily_trend(start_date, end_date, period=None):
+    """
+    Class-wide daily bathroom usage trend (total trips per day).
+    """
+    with get_conn() as conn:
+        query = """
+            SELECT bs.date,
+                   COUNT(*) AS trips,
+                   COALESCE(SUM(bs.duration_minutes), 0) AS total_minutes
+            FROM bathroom_sessions bs
+            JOIN students s ON s.id = bs.student_id
+            WHERE bs.duration_minutes IS NOT NULL
+              AND bs.date >= ? AND bs.date <= ?
+        """
+        params = [start_date, end_date]
+        if period is not None:
+            query += " AND s.period = ?"
+            params.append(period)
+        query += " GROUP BY bs.date ORDER BY bs.date ASC"
+        rows = conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_student_by_id(student_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM students WHERE id=?", (student_id,)
+        ).fetchone()
+        return dict(row) if row else None

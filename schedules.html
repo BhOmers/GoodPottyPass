@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}Schedules{% endblock %}
+
+{% block content %}
+<h1>Schedule Management</h1>
+
+<!-- Weekly Assignment -->
+<div class="card">
+  <h2>Weekly Schedule</h2>
+  <p class="muted">Assign a schedule preset to each day of the week. Date-specific overrides below take priority.</p>
+  <form method="POST" action="{{ url_for('schedules') }}">
+    <input type="hidden" name="action" value="save_week">
+    <table class="table">
+      <thead><tr><th>Day</th><th>Schedule</th></tr></thead>
+      <tbody>
+        {% for day in weekday_names %}
+        <tr>
+          <td><strong>{{ day.capitalize() }}</strong></td>
+          <td>
+            <select name="day_{{ day }}" class="select-inline">
+              {% for key, sched in config.schedules.items() %}
+                <option value="{{ key }}"
+                  {% if config.week_schedule.get(day) == key %}selected{% endif %}>
+                  {{ sched.name }}
+                </option>
+              {% endfor %}
+            </select>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <button type="submit" class="btn btn-primary" style="margin-top:12px">Save Weekly Schedule</button>
+  </form>
+</div>
+
+<!-- Date Overrides -->
+<div class="card">
+  <h2>Date Overrides</h2>
+  <p class="muted">Set a specific schedule for a particular date, like a special minimum day or holiday.</p>
+  <form method="POST" action="{{ url_for('schedules') }}" class="inline-form" style="margin-bottom:16px">
+    <input type="hidden" name="action" value="save_date_override">
+    <input type="date" name="override_date" class="input-inline" required>
+    <select name="override_schedule" class="select-inline">
+      {% for key, sched in config.schedules.items() %}
+        <option value="{{ key }}">{{ sched.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-primary">Add Override</button>
+  </form>
+
+  {% if overrides %}
+  <table class="table">
+    <thead><tr><th>Date</th><th>Schedule</th><th></th></tr></thead>
+    <tbody>
+      {% for d, key in overrides %}
+      <tr>
+        <td>{{ d }}</td>
+        <td>{{ config.schedules.get(key, {}).get('name', key) }}</td>
+        <td>
+          <form method="POST" action="{{ url_for('schedules') }}" style="display:inline">
+            <input type="hidden" name="action" value="delete_date_override">
+            <input type="hidden" name="override_date" value="{{ d }}">
+            <button type="submit" class="btn btn-xs btn-danger">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="muted small">No date overrides set.</div>
+  {% endif %}
+</div>
+
+<!-- Preset List -->
+<div class="card">
+  <h2>Schedule Presets</h2>
+  <div class="preset-grid">
+    {% for key, sched in config.schedules.items() %}
+    <div class="preset-card">
+      <div class="preset-header">
+        <strong>{{ sched.name }}</strong>
+        <span class="badge badge-info">{{ sched.active_periods | join(', ') or 'None' }}</span>
+      </div>
+      <table class="table table-compact" style="margin-top:8px">
+        <thead><tr><th>Period</th><th>Start</th><th>End</th></tr></thead>
+        <tbody>
+          {% for p in sched.active_periods %}
+            {% set pt = sched.periods.get(p|string, {}) %}
+            <tr>
+              <td>{{ p }}</td>
+              <td>{{ pt.get('start', '—') }}</td>
+              <td>{{ pt.get('end', '—') }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div style="margin-top:8px;display:flex;gap:8px">
+        <button class="btn btn-xs btn-outline" onclick="loadPreset('{{ key }}')">Edit</button>
+        {% if key not in ['no_school'] %}
+        <form method="POST" action="{{ url_for('schedules') }}" style="display:inline">
+          <input type="hidden" name="action" value="delete_preset">
+          <input type="hidden" name="preset_key" value="{{ key }}">
+          <button type="submit" class="btn btn-xs btn-danger"
+                  onclick="return confirm('Delete {{ sched.name }}?')">Delete</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Add/Edit Preset Form -->
+<div class="card" id="preset-form-card">
+  <h2 id="preset-form-title">Add New Schedule Preset</h2>
+  <form method="POST" action="{{ url_for('schedules') }}">
+    <input type="hidden" name="action" value="save_preset">
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div class="form-group">
+        <label>Preset Key (no spaces, e.g. "regular_block_a")</label>
+        <input type="text" name="preset_key" id="form_key" class="input-block" required
+               pattern="[a-z0-9_]+" title="Lowercase letters, numbers, underscores only">
+      </div>
+      <div class="form-group">
+        <label>Display Name</label>
+        <input type="text" name="preset_name" id="form_name" class="input-block" required>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Active Periods (comma-separated, e.g. "0,1,3,5" for Block A)</label>
+      <input type="text" name="active_periods" id="form_active" class="input-block"
+             placeholder="0,1,3,5" required>
+    </div>
+
+    <table class="table" style="margin-bottom:16px">
+      <thead><tr><th>Period</th><th>Start Time</th><th>End Time</th></tr></thead>
+      <tbody>
+        {% for p in range(8) %}
+        <tr>
+          <td><strong>{{ p }}</strong></td>
+          <td><input type="time" name="p{{ p }}_start" id="form_p{{ p }}_start" class="input-inline"></td>
+          <td><input type="time" name="p{{ p }}_end"   id="form_p{{ p }}_end"   class="input-inline"></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <button type="submit" class="btn btn-primary">Save Preset</button>
+    <button type="button" class="btn btn-outline" onclick="clearForm()">Clear</button>
+  </form>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const presets = {{ config.schedules | tojson }};
+
+function loadPreset(key) {
+  const s = presets[key];
+  if (!s) return;
+  document.getElementById('form_key').value    = key;
+  document.getElementById('form_name').value   = s.name;
+  document.getElementById('form_active').value = s.active_periods.join(',');
+  for (let p = 0; p < 8; p++) {
+    const pt = s.periods[String(p)] || {};
+    document.getElementById(`form_p${p}_start`).value = pt.start || '';
+    document.getElementById(`form_p${p}_end`).value   = pt.end   || '';
+  }
+  document.getElementById('preset-form-title').textContent = `Editing: ${s.name}`;
+  document.getElementById('preset-form-card').scrollIntoView({behavior:'smooth'});
+}
+
+function clearForm() {
+  document.getElementById('form_key').value    = '';
+  document.getElementById('form_name').value   = '';
+  document.getElementById('form_active').value = '';
+  for (let p = 0; p < 8; p++) {
+    document.getElementById(`form_p${p}_start`).value = '';
+    document.getElementById(`form_p${p}_end`).value   = '';
+  }
+  document.getElementById('preset-form-title').textContent = 'Add New Schedule Preset';
+}
+</script>
+{% endblock %}

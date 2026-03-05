@@ -2,14 +2,20 @@
 scanner.py
 Handles all RFID scan events.
 
-Scan flow per student:
-  1st scan in a period  -> mark attendance (present or tardy)
-  2nd scan onward       -> bathroom pass system
+Attendance logic:
+  - Students can scan up to pre_scan_minutes BEFORE the period starts -> Present
+  - At exactly the period start time or after -> Tardy
+  - After the period ends -> ignored (no active period)
+
+Bathroom logic:
+  - 1st scan in period: attendance (see above)
+  - Subsequent scans: bathroom pass system
 """
 
 import threading
 from datetime import datetime, date
 import database as db
+from config import load_config, get_schedule_for_date
 
 # ── Registration State ────────────────────────────────────────────────────────
 
@@ -43,11 +49,6 @@ def get_registration_card():
 
 
 def handle_registration_scan(uid):
-    """
-    Called when a card is tapped during registration mode.
-    Stores uid -> card_number in the DB and clears registration state.
-    Returns the card_number that was registered, or None.
-    """
     global _reg_mode, _reg_card_number
     with _reg_lock:
         if not _reg_mode:
@@ -63,90 +64,122 @@ def handle_registration_scan(uid):
     return None
 
 
-# ── Attendance / Bathroom Logic ───────────────────────────────────────────────
+# ── Tardy Logic ───────────────────────────────────────────────────────────────
+
+def _determine_status(period, config):
+    """
+    Present  = scan arrives before the period's official start time
+               (even during the pre_scan window)
+    Tardy    = scan arrives at or after the official start time
+    """
+    now = datetime.now()
+    now_min = now.hour * 60 + now.minute
+
+    date_str = date.today().isoformat()
+    schedule, _ = get_schedule_for_date(config, date_str)
+    period_times = schedule.get("periods", {})
+    p_str = str(period)
+
+    if p_str in period_times:
+        h, m = map(int, period_times[p_str]["start"].split(":"))
+        start_min = h * 60 + m
+        if now_min < start_min:
+            return "present"   # scanning before the bell
+        return "tardy"         # at or after the bell
+    return "present"
+
+
+# ── Main Scan Handler ─────────────────────────────────────────────────────────
 
 def _today():
     return date.today().isoformat()
 
 
-def _determine_status(period, config):
-    """Returns 'present' or 'tardy' based on the current time vs period start."""
-    now = datetime.now()
-    now_min = now.hour * 60 + now.minute
-    p_str = str(period)
-    if p_str in config.get("periods", {}):
-        h, m = map(int, config["periods"][p_str]["start"].split(":"))
-        start_min = h * 60 + m
-        if now_min <= start_min + int(config.get("tardy_minutes", 5)):
-            return "present"
-        return "tardy"
-    return "present"
-
-
 def handle_scan(uid, config, current_period):
     """
-    Process a student scan. Returns (line1, line2, line3) tuple for the OLED,
-    or None if the scan should be silently ignored.
+    Process a student card scan.
+    Returns (line1, line2, line3) for the OLED display, or None to ignore.
     """
     today = _today()
     scan_time = datetime.now().strftime("%H:%M:%S")
 
+    attendance_on = config.get("attendance_enabled", True)
+    bathroom_on   = config.get("bathroom_enabled", True)
+
     if current_period is None:
         return ("No active period", "Not class time", "")
 
-    # Look up UID -> card number
     card_number = db.get_card_number(uid)
     if card_number is None:
         return ("Unknown card!", f"UID ...{uid[-6:]}", "Register in dashboard")
 
-    # Look up student in current period
     student = db.get_student(card_number, current_period)
     if student is None:
-        return (f"Card #{card_number}", f"Not in Period {current_period}", "")
+        return (f"Card #{card_number}", f"Not in P{current_period}", "")
 
-    sid = student["id"]
+    sid  = student["id"]
     name = student["name"]
     first = name.split()[0]
 
-    # ── First scan of the period: attendance ──────────────────────────────────
+    # ── Attendance scan ───────────────────────────────────────────────────────
     att = db.get_student_attendance_status(sid, today, current_period)
+
     if att is None:
+        if not attendance_on:
+            # Attendance disabled: just acknowledge and allow bathroom use
+            db.mark_attendance(sid, today, current_period, "present", scan_time)
+            return (f"Hi {first}!", "Attendance off", "")
+
         status = _determine_status(current_period, config)
         db.mark_attendance(sid, today, current_period, status, scan_time)
         if status == "tardy":
             return ("TARDY", name, scan_time)
         return ("PRESENT", name, scan_time)
 
-    # ── Subsequent scans: bathroom pass ───────────────────────────────────────
+    # ── Bathroom scans ────────────────────────────────────────────────────────
+    if not bathroom_on:
+        return ("Bathroom pass", "is disabled", "")
+
     bathroom_out = db.get_current_bathroom_out(today, current_period)
 
     # Student is returning from bathroom
     if bathroom_out and bathroom_out["student_id"] == sid:
         out_dt = datetime.fromisoformat(bathroom_out["out_time"])
-        mins = (datetime.now() - out_dt).total_seconds() / 60.0
+        mins   = (datetime.now() - out_dt).total_seconds() / 60.0
         db.end_bathroom_session(sid, today, current_period,
                                 datetime.now().isoformat(), round(mins, 2))
         queue = db.get_bathroom_queue(today, current_period)
         if queue:
             next_name = queue[0]["name"].split()[0]
-            return (f"Back: {first} ({mins:.0f}m)", f"NEXT UP: {next_name}!", "Scan to go")
+            return (f"Back: {first} ({mins:.0f}m)", f"NEXT: {next_name}!", "Scan to go")
         return (f"Welcome back!", f"{first}: {mins:.0f} min out", "")
 
-    # Student is in the queue and scanning again -> cancel their spot
+    # Student is in the queue
     queue = db.get_bathroom_queue(today, current_period)
     in_queue = next((i for i, q in enumerate(queue) if q["student_id"] == sid), -1)
+
     if in_queue >= 0:
-        db.remove_from_bathroom_queue(sid, today, current_period)
-        return (f"Removed from queue", first, "Scan again to rejoin")
+        if not bathroom_out:
+            # Bathroom just freed up - let them go
+            db.remove_from_bathroom_queue(sid, today, current_period)
+            db.start_bathroom_session(sid, today, current_period,
+                                      datetime.now().isoformat())
+            return (f"Bathroom: {first}", "Scan when back", "")
+        else:
+            # Still occupied - cancel their spot
+            db.remove_from_bathroom_queue(sid, today, current_period)
+            return ("Removed from queue", first, "Scan again to rejoin")
 
-    # Someone is already out -> add to queue
+    # Bathroom is occupied - add to queue
     if bathroom_out:
-        db.add_to_bathroom_queue(sid, today, current_period, datetime.now().isoformat())
-        queue = db.get_bathroom_queue(today, current_period)  # refresh for count
-        pos = len(queue)
+        db.add_to_bathroom_queue(sid, today, current_period,
+                                 datetime.now().isoformat())
+        queue = db.get_bathroom_queue(today, current_period)
+        pos       = len(queue)
         out_first = bathroom_out["name"].split()[0]
-        return (f"Queue #{pos} for {first}", f"Waiting for {out_first}", "Scan to cancel")
+        return (f"Queue #{pos}: {first}", f"Waiting for {out_first}", "Scan to cancel")
 
-    # Bathroom is free -> go!
-    db.start_bathroom_session(sid, today, current_period, datetime.now().isoformat())
+    # Bathroom is free - go!
+    db.start_bathroom_session(sid, today, current_period,
+                              datetime.now().isoformat())
     return (f"Bathroom: {first}", "Scan when back", "")

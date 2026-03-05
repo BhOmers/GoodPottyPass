@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block title %}Bathroom Analytics{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Bathroom Analytics</h1>
+  <a href="{{ url_for('analytics_export', semester=sem_key, start=start_d, end=end_d, period=period or '') }}"
+     class="btn btn-outline">⬇ Export CSV</a>
+</div>
+
+<!-- Filters -->
+<div class="card">
+  <form method="GET" action="{{ url_for('analytics') }}" class="filter-row">
+    <div class="form-group" style="margin:0">
+      <label>Semester</label>
+      <select name="semester" class="select-inline" onchange="this.form.submit()">
+        <option value="">Custom range</option>
+        {% for key, sem in semesters.items() %}
+          <option value="{{ key }}" {% if key == sem_key %}selected{% endif %}>{{ sem.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group" style="margin:0">
+      <label>From</label>
+      <input type="date" name="start" value="{{ start_d }}" class="input-inline">
+    </div>
+    <div class="form-group" style="margin:0">
+      <label>To</label>
+      <input type="date" name="end" value="{{ end_d }}" class="input-inline">
+    </div>
+    <div class="form-group" style="margin:0">
+      <label>Period</label>
+      <select name="period" class="select-inline">
+        <option value="">All Periods</option>
+        {% for p in active_periods %}
+          <option value="{{ p }}" {% if period == p %}selected{% endif %}>Period {{ p }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary" style="align-self:flex-end">Apply</button>
+  </form>
+</div>
+
+<div class="two-col">
+
+  <!-- Class-wide Daily Trend -->
+  <div class="card" style="grid-column: span 2">
+    <h2>Class-Wide Bathroom Trips Per Day</h2>
+    {% if daily_trend %}
+      <canvas id="dailyChart" height="80"></canvas>
+    {% else %}
+      <div class="empty-state">No data for this date range.</div>
+    {% endif %}
+  </div>
+
+  <!-- Per-Student Table -->
+  <div class="card" style="grid-column: span 2">
+    <h2>Per-Student Summary</h2>
+    <p class="muted small">Sorted by total minutes. {{ start_d }} to {{ end_d }}</p>
+    {% if analytics_data %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Name</th>
+          <th>Period</th>
+          <th>Total Min</th>
+          <th>Trips</th>
+          <th>Avg Min/Trip</th>
+          <th>Trend</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in analytics_data %}
+        <tr>
+          <td class="muted">{{ s.card_number }}</td>
+          <td><strong>{{ s.name }}</strong></td>
+          <td>{{ s.period }}</td>
+          <td>
+            <span class="{% if s.total_minutes > 30 %}high-usage{% elif s.total_minutes > 15 %}med-usage{% endif %}">
+              {{ s.total_minutes }}
+            </span>
+          </td>
+          <td>{{ s.trips }}</td>
+          <td>{{ s.avg_minutes }}</td>
+          <td>
+            {% if s.trips > 0 %}
+              <div class="mini-bar" style="width:{{ [s.total_minutes * 2, 120] | min }}px"></div>
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="empty-state">No bathroom data for this range.</div>
+    {% endif %}
+  </div>
+
+  <!-- Weekly Trends - Top Students -->
+  {% if student_trends %}
+  <div class="card" style="grid-column: span 2">
+    <h2>Weekly Trends - Top 5 Students</h2>
+    <canvas id="weeklyChart" height="90"></canvas>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+// ── Daily Trips Chart ─────────────────────────────────────────────────────────
+{% if daily_trend %}
+const dailyData = {{ daily_trend | tojson }};
+new Chart(document.getElementById('dailyChart'), {
+  type: 'bar',
+  data: {
+    labels: dailyData.map(d => d.date),
+    datasets: [{
+      label: 'Trips',
+      data: dailyData.map(d => d.trips),
+      backgroundColor: 'rgba(59,130,246,0.6)',
+      borderColor: 'rgba(59,130,246,1)',
+      borderWidth: 1,
+    }, {
+      label: 'Total Minutes',
+      data: dailyData.map(d => Math.round(d.total_minutes * 10) / 10),
+      type: 'line',
+      borderColor: 'rgba(239,68,68,0.8)',
+      backgroundColor: 'transparent',
+      tension: 0.3,
+      yAxisID: 'y2',
+    }]
+  },
+  options: {
+    responsive: true,
+    scales: {
+      y:  { beginAtZero: true, title: { display: true, text: 'Trips' } },
+      y2: { beginAtZero: true, position: 'right', title: { display: true, text: 'Minutes' },
+            grid: { drawOnChartArea: false } }
+    },
+    plugins: { legend: { position: 'top' } }
+  }
+});
+{% endif %}
+
+// ── Weekly Per-Student Trend Chart ─────────────────────────────────────────────
+{% if student_trends %}
+const studentTrends = {{ student_trends | tojson }};
+const allWeeks = new Set();
+Object.values(studentTrends).forEach(st => st.weeks.forEach(w => allWeeks.add(w.week_start)));
+const weekLabels = Array.from(allWeeks).sort();
+
+const colors = [
+  'rgba(59,130,246,0.8)',
+  'rgba(239,68,68,0.8)',
+  'rgba(34,197,94,0.8)',
+  'rgba(245,158,11,0.8)',
+  'rgba(168,85,247,0.8)',
+];
+
+const datasets = Object.entries(studentTrends).map(([sid, st], i) => {
+  const weekMap = {};
+  st.weeks.forEach(w => weekMap[w.week_start] = w.total_minutes);
+  return {
+    label: st.name,
+    data: weekLabels.map(w => Math.round((weekMap[w] || 0) * 10) / 10),
+    borderColor: colors[i % colors.length],
+    backgroundColor: 'transparent',
+    tension: 0.3,
+    pointRadius: 4,
+  };
+});
+
+new Chart(document.getElementById('weeklyChart'), {
+  type: 'line',
+  data: { labels: weekLabels, datasets },
+  options: {
+    responsive: true,
+    scales: {
+      y: { beginAtZero: true, title: { display: true, text: 'Minutes Out' } }
+    },
+    plugins: { legend: { position: 'top' } }
+  }
+});
+{% endif %}
+</script>
+{% endblock %}
